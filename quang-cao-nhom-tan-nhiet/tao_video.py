@@ -14,8 +14,8 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 # ===================== CAU HINH =====================
-TEN_CUA_HANG = "NHÔM ĐỊNH HÌNH"
-HOTLINE = "09xx.xxx.xxx"
+TEN_CUA_HANG = "NHÔM PHÚC LÊ"
+HOTLINE = "0912.345.678"
 DIA_CHI = "Hà Nội  •  Giao hàng toàn quốc"
 # ====================================================
 
