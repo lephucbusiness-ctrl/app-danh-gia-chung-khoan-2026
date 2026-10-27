@@ -19,6 +19,14 @@ XFADE = 0.25
 # vung an toan TikTok: tren 180px, duoi tu 1380px, ben phai 140px bi giao dien che
 SAFE_TOP, SAFE_BOTTOM = 180, 1380
 CX = (W - 140 + 60) / 2  # tam ngang cua vung an toan
+MAX_TW = 800  # chu rong toi da de khong lan sang vung bi che
+
+
+def fit(weight, size, s):
+    """Thu nho co chu neu dong chu qua dai."""
+    f = font(weight, size)
+    tw = ImageDraw.Draw(Image.new("L", (1, 1))).textlength(s, font=f)
+    return f if tw <= MAX_TW else font(weight, int(size * MAX_TW / tw))
 
 
 def cover(img, w, h, p, zoom_to=1.12, punch=0.3):
@@ -43,8 +51,9 @@ def label(layer, cx, cy, s, f, fg, bg, alpha, pad=(36, 18)):
     d.text((cx, cy), s, font=f, fill=fg + (a,), anchor="mm")
 
 
-def hook_scene(dur=2.4):
-    img, bg = IMGS["cat"], BGS["cat"]
+def hook_scene(dur=2.4, key="cat", line1="THIẾT BỊ", line2="NÓNG QUÁ?",
+               answer="→ DÙNG NHÔM TẢN NHIỆT!"):
+    img, bg = IMGS[key], BGS[key]
     glow = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     ImageDraw.Draw(glow).ellipse((-200, 300, W + 200, 1300), fill=(255, 70, 0, 110))
     glow = glow.filter(ImageFilter.GaussianBlur(120))
@@ -56,12 +65,12 @@ def hook_scene(dur=2.4):
         frame.paste(glow, (0, 0), glow)
         layer = Image.new("RGBA", (W, H), (0, 0, 0, 0))
         a = ease(t / 0.25)
-        draw_text(layer, (CX, 230 + 30 * (1 - a)), "THIẾT BỊ", font("Black", 110), WHITE, a, "ma")
-        draw_text(layer, (CX, 360 + 30 * (1 - a)), "NÓNG QUÁ?", font("Black", 130), ORANGE, a, "ma")
+        draw_text(layer, (CX, 230 + 30 * (1 - a)), line1, font("Black", 110), WHITE, a, "ma")
+        draw_text(layer, (CX, 360 + 30 * (1 - a)), line2, font("Black", 130), ORANGE, a, "ma")
         a = ease((t - 0.9) / 0.3)
         if a > 0:
             s = 1 + 0.25 * (1 - a)
-            label(layer, CX, 1250, "→ DÙNG NHÔM TẢN NHIỆT!", font("Black", int(52 * s)),
+            label(layer, CX, 1250, answer, fit("Black", int(52 * s), answer),
                   (20, 20, 20), WHITE, a)
         frame.paste(layer, (0, 0), layer)
         return frame
@@ -84,7 +93,7 @@ def cut_scene(key, big, small, dur=2.4):
         d.rounded_rectangle((CX - tw / 2 - 26, SAFE_TOP + 10, CX + tw / 2 + 26, SAFE_TOP + 62), 26,
                             fill=ORANGE + (int(255 * a),))
         d.text((CX, SAFE_TOP + 36), TEN_CUA_HANG, font=ft, fill=WHITE + (int(255 * a),), anchor="mm")
-        draw_text(layer, (CX - 50 * (1 - a), 300), big, font("Black", 96), WHITE, a, "ma")
+        draw_text(layer, (CX - 50 * (1 - a), 300), big, fit("Black", 96, big), WHITE, a, "ma")
         a2 = ease((t - 0.35) / 0.35)
         if a2 > 0:
             label(layer, CX, 1300, small, font("Bold", 52), WHITE, ORANGE, a2)
@@ -94,9 +103,9 @@ def cut_scene(key, big, small, dur=2.4):
     return dur, render
 
 
-def cta_scene(dur=3.8):
-    img = IMGS["mau"]
-    base = Image.blend(BGS["mau"], Image.new("RGB", (W, H), (6, 10, 18)), 0.4)
+def cta_scene(dur=3.8, key="mau"):
+    img = IMGS[key]
+    base = Image.blend(BGS[key], Image.new("RGB", (W, H), (6, 10, 18)), 0.4)
 
     def render(t):
         frame = base.copy()
@@ -134,18 +143,18 @@ SCENES = [
 ]
 
 
-def total_duration():
-    return sum(d for d, _ in SCENES) - XFADE * (len(SCENES) - 1)
+def total_duration(scenes):
+    return sum(d for d, _ in scenes) - XFADE * (len(scenes) - 1)
 
 
-def frame_at(T):
+def frame_at(T, scenes):
     start, hits = 0.0, []
-    for d, r in SCENES:
+    for d, r in scenes:
         if start <= T < start + d:
             hits.append((T - start, r))
         start += d - XFADE
     if not hits:
-        d, r = SCENES[-1]
+        d, r = scenes[-1]
         return r(d - 1e-3)
     if len(hits) == 1:
         return hits[0][1](hits[0][0])
@@ -153,23 +162,23 @@ def frame_at(T):
     return Image.blend(r1(t1), r2(t2), t2 / XFADE)
 
 
-def main():
-    dur = total_duration()
+def render(scenes, out):
+    dur = total_duration(scenes)
     wav = os.path.join(DIR, "_nhac_tiktok.wav")
     make_music(wav, dur, bpm=124)
     cmd = ["ffmpeg", "-y", "-loglevel", "error",
            "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{W}x{H}", "-r", str(FPS), "-i", "-",
            "-i", wav, "-c:v", "libx264", "-preset", "medium", "-crf", "20",
            "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "160k", "-shortest",
-           "-movflags", "+faststart", OUT]
+           "-movflags", "+faststart", out]
     proc = subprocess.Popen(cmd, stdin=subprocess.PIPE)
     for i in range(int(dur * FPS)):
-        proc.stdin.write(frame_at(i / FPS).tobytes())
+        proc.stdin.write(frame_at(i / FPS, scenes).tobytes())
     proc.stdin.close()
     proc.wait()
     os.remove(wav)
-    print("Xong:", OUT, f"({dur:.1f} giay)")
+    print("Xong:", out, f"({dur:.1f} giay)")
 
 
 if __name__ == "__main__":
-    main()
+    render(SCENES, OUT)
