@@ -279,12 +279,12 @@ def frame_at(T):
     return Image.blend(r1(t1), r2(t2), ease(t2 / XFADE))
 
 
-def make_music(path, dur, sr=44100):
-    """Nhac nen tu tao (khong ban quyen): hop am Am-F-C-G, trong nhe, 100 BPM."""
+def make_music(path, dur, sr=44100, bpm=100):
+    """Nhac nen tu tao (khong ban quyen): hop am Am-F-C-G, trong nhe."""
     n = int(dur * sr)
     t = np.arange(n) / sr
     out = np.zeros(n)
-    beat = 60 / 100
+    beat = 60 / bpm
     bar = beat * 4
     chords = [[57, 60, 64], [53, 57, 60], [48, 52, 55], [55, 59, 62]]
     hz = lambda m: 440 * 2 ** ((m - 69) / 12)
