@@ -15,8 +15,8 @@ from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 # ===================== CAU HINH =====================
 TEN_CUA_HANG = "NHÔM PHÚC LÊ"
-HOTLINE = "0912.345.678"
-DIA_CHI = "Hà Nội  •  Giao hàng toàn quốc"
+HOTLINE = "0906.185.715"
+DIA_CHI = "TP.HCM  •  Giao hàng toàn quốc"
 # ====================================================
 
 W, H, FPS = 1080, 1920, 30
