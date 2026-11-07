@@ -4,6 +4,7 @@ import streamlit as st
 from plotly.subplots import make_subplots
 
 from engine import analyze, demo_price, load_price
+from fundamentals import demo_fundamentals, load_fundamentals, overall, score_fundamentals
 
 st.set_page_config(page_title="Radar Cổ Phiếu", layout="wide")
 
@@ -37,6 +38,16 @@ show_days = st.sidebar.slider("Số phiên hiển thị trên biểu đồ", 60,
 @st.cache_data(ttl=900, show_spinner=False)
 def get_data(ticker: str, demo: bool) -> pd.DataFrame:
     return demo_price(ticker) if demo else load_price(ticker)
+
+
+@st.cache_data(ttl=6 * 3600, show_spinner=False)
+def get_fa(ticker: str, demo: bool) -> tuple[dict, str | None]:
+    """Trả về (kết quả chấm FA, thông báo lỗi nếu có). Lỗi -> chấm trung tính."""
+    try:
+        m = demo_fundamentals(ticker) if demo else load_fundamentals(ticker)
+        return score_fundamentals(m), None
+    except Exception as e:
+        return score_fundamentals({}), str(e)
 
 
 def fmt(x: float) -> str:
@@ -155,6 +166,7 @@ with tab1:
         try:
             with st.spinner(f"Đang tải & phân tích {ticker}..."):
                 res = analyze(get_data(ticker, use_demo), lookback_vp=vp_days)
+                fa, fa_err = get_fa(ticker, use_demo)
         except Exception as e:
             st.error(f"{e}\n\nGợi ý: bật 'Dùng dữ liệu mẫu' ở thanh bên để chạy thử.")
             st.stop()
@@ -163,12 +175,16 @@ with tab1:
         pos = res["position"]
         last = res["df"].iloc[-1]
 
-        c1, c2, c3, c4 = st.columns(4)
+        tot = overall(fa["score"], sig["Điểm MUA"])
+
+        c0, c1, c2, c3, c4 = st.columns([1.3, 1, 1.2, 1, 1])
+        c0.metric("⭐ TỔNG ĐIỂM", f"{tot['total']:.0f}/100", tot["verdict"], delta_color="off", delta_arrow="off")
         c1.metric("Giá hiện tại", fmt(last["close"]),
                   f"{(last['close'] / res['df']['close'].iloc[-2] - 1) * 100:+.2f}%")
-        c2.metric("Tín hiệu", sig["Tín hiệu"])
-        c3.metric("Điểm tin cậy", f"{sig['Điểm tin cậy']:.0f}/100")
-        c4.metric("KL so với TB20", f"{res['vol_ratio']:.2f}x")
+        c2.metric("Tín hiệu kỹ thuật", sig["Tín hiệu"])
+        c3.metric("Điểm cơ bản (FA)", f"{fa['score']:.0f}/50", fa["grade"].split(" - ")[0], delta_color="off", delta_arrow="off")
+        c4.metric("Điểm kỹ thuật (TA)", f"{sig['Điểm MUA'] / 2:.0f}/50", f"KL {res['vol_ratio']:.2f}x TB20",
+                  delta_color="off", delta_arrow="off")
 
         left, right = st.columns([3.2, 1])
         with left:
@@ -194,7 +210,19 @@ with tab1:
                 (k, f"{v:.2f}%" if k == "Rủi ro %" else fmt(v)) for k, v in pos.items()
             ]), unsafe_allow_html=True)
 
-        with st.expander("📝 Vì sao ra tín hiệu này?", expanded=True):
+        fa_col, why_col = st.columns([1.1, 1])
+        with fa_col:
+            st.subheader(f"🏦 Sức khỏe doanh nghiệp: {fa['grade']}")
+            if fa_err:
+                st.warning("Chưa lấy được báo cáo tài chính → FA đang tính điểm trung tính (25/50). "
+                           f"Chi tiết: {fa_err}")
+            elif fa["missing"]:
+                st.caption(f"⚠️ Thiếu {fa['missing']} chỉ tiêu → cho điểm trung tính. Nguồn: {fa['source']}")
+            else:
+                st.caption(f"Nguồn: {fa['source']} · số liệu năm gần nhất")
+            st.dataframe(fa["table"], use_container_width=True, hide_index=True)
+            st.caption("Thang FA 50: ROE 15 · Tăng trưởng LNST 10 · P/E 10 · Nợ/Vốn chủ 10 · P/B 5")
+        with why_col, st.expander("📝 Vì sao ra tín hiệu kỹ thuật này?", expanded=True):
             for w in sig["Lý do"] or ["Chưa có yếu tố nào nổi bật."]:
                 st.write("✔️", w)
             st.caption(
@@ -213,13 +241,20 @@ with tab2:
             try:
                 r = analyze(get_data(t, use_demo), lookback_vp=vp_days)
                 s, p = r["signal"], r["position"]
+                fa, fa_err = get_fa(t, use_demo)
+                tot = overall(fa["score"], s["Điểm MUA"])
+                fa_vals = dict(zip(fa["table"]["Tiêu chí"], fa["table"]["Giá trị"]))
                 rows.append({
                     "Mã": t,
+                    "Tổng điểm": tot["total"],
+                    "Đánh giá": tot["verdict"],
+                    "FA /50": fa["score"] if not fa_err else None,
+                    "TA /50": round(s["Điểm MUA"] / 2, 1),
+                    "Tín hiệu KT": s["Tín hiệu"],
                     "Giá": fmt(r["df"]["close"].iloc[-1]),
-                    "Tín hiệu": s["Tín hiệu"],
-                    "Điểm tin cậy": s["Điểm tin cậy"],
-                    "Điểm MUA": s["Điểm MUA"],
-                    "Điểm BÁN": s["Điểm BÁN"],
+                    "ROE": fa_vals.get("ROE"),
+                    "P/E": fa_vals.get("P/E"),
+                    "Tăng trưởng LN": fa_vals.get("Tăng trưởng LNST"),
                     "Đồng thuận khung": r["core"]["Đồng thuận đa khung"],
                     "Trạng thái": r["core"]["Trạng thái thị trường"],
                     "Dòng tiền": r["core"]["Dòng tiền 20 phiên"],
@@ -230,11 +265,20 @@ with tab2:
                 st.warning(f"{t}: {e}")
             prog.progress((i + 1) / len(tickers))
         if rows:
-            out = pd.DataFrame(rows).sort_values("Điểm MUA", ascending=False).reset_index(drop=True)
-            st.success(f"🏆 Mã có điểm MUA cao nhất nhóm: **{out.iloc[0]['Mã']}** ({out.iloc[0]['Điểm MUA']:.0f} điểm)")
-            st.dataframe(out, use_container_width=True)
+            out = pd.DataFrame(rows).sort_values("Tổng điểm", ascending=False).reset_index(drop=True)
+            out.index = out.index + 1
+            st.success(f"🏆 Mã tốt nhất nhóm: **{out.iloc[0]['Mã']}** – {out.iloc[0]['Tổng điểm']:.0f}/100 "
+                       f"({out.iloc[0]['Đánh giá']})")
+            st.dataframe(
+                out, use_container_width=True,
+                column_config={"Tổng điểm": st.column_config.ProgressColumn(
+                    "Tổng điểm", min_value=0, max_value=100, format="%.0f")},
+            )
+            if out["FA /50"].isna().any():
+                st.caption("Ô FA trống = chưa lấy được báo cáo tài chính, đang tính trung tính 25/50.")
             st.info(
-                "💡 Cách dùng: ưu tiên mã TOP có tín hiệu 🟢 và rủi ro % thấp. "
+                "💡 Cách dùng: Tổng điểm = Cơ bản (doanh nghiệp tốt, giá hợp lý) + Kỹ thuật (đúng thời điểm). "
+                "Ưu tiên mã TOP có tín hiệu 🟢 và rủi ro % thấp. "
                 "Luôn đặt cắt lỗ theo cột SL; mã 🔴 thì hạ tỷ trọng."
             )
 
