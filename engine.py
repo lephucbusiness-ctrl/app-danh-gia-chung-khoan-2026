@@ -34,38 +34,14 @@ def _normalize(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def load_price(ticker: str, days: int = 730) -> pd.DataFrame:
-    """Lấy giá ngày từ vnstock (thử API mới trước, API cũ sau)."""
-    end = datetime.now().strftime("%Y-%m-%d")
-    start = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
-    errors = []
-    # vnstock >= 3.x
-    try:
-        from vnstock import Vnstock  # type: ignore
+    """Lấy giá ngày (Yahoo Finance -> TCBS). Xem datasource.py."""
+    from datasource import load_price as _load
 
-        for source in ("VCI", "TCBS"):
-            try:
-                stock = Vnstock().stock(symbol=ticker, source=source)
-                df = stock.quote.history(start=start, end=end, interval="1D")
-                if df is not None and not df.empty:
-                    return _normalize(df)
-            except Exception as e:  # thử nguồn khác
-                errors.append(f"{source}: {e}")
-    except ImportError as e:
-        errors.append(str(e))
-    # vnstock bản cũ (0.x)
-    try:
-        from vnstock import stock_historical_data  # type: ignore
-
-        df = stock_historical_data(ticker, start, end, "1D", "stock")
-        if df is not None and not df.empty:
-            return _normalize(df)
-    except Exception as e:
-        errors.append(str(e))
-    raise RuntimeError(f"Không tải được dữ liệu {ticker}: " + " | ".join(errors))
+    return _load(ticker, days)
 
 
 def demo_price(ticker: str, days: int = 500) -> pd.DataFrame:
-    """Dữ liệu giả lập để chạy thử khi không có mạng / không có vnstock."""
+    """Dữ liệu giả lập để chạy thử khi không có mạng."""
     seed = sum(ord(c) for c in ticker)
     rng = np.random.default_rng(seed)
     idx = pd.bdate_range(end=datetime.now().date(), periods=days)

@@ -18,7 +18,7 @@ import re
 import numpy as np
 import pandas as pd
 
-# Từ khóa nhận diện cột trong bảng chỉ số (vnstock trả về tên cột khác nhau tùy nguồn / phiên bản)
+# Từ khóa nhận diện cột trong bảng chỉ số (nguồn dữ liệu trả về tên cột khác nhau tùy nguồn / phiên bản)
 KEYS = {
     "roe": [r"^roe", r"\broe\b"],
     "pe": [r"^p/e$", r"p/e\b", r"priceto?earning", r"^pe$"],
@@ -90,27 +90,24 @@ def extract_metrics(ratio: pd.DataFrame) -> dict:
 
 
 def load_fundamentals(ticker: str) -> dict:
-    """Lấy chỉ số tài chính năm gần nhất từ vnstock."""
+    """Lấy chỉ số tài chính năm gần nhất (TCBS -> Yahoo Finance)."""
+    from datasource import metrics_yahoo, ratio_tcbs
+
     errors = []
     try:
-        from vnstock import Vnstock  # type: ignore
-
-        for source in ("VCI", "TCBS"):
-            try:
-                fin = Vnstock().stock(symbol=ticker, source=source).finance
-                try:
-                    ratio = fin.ratio(period="year", lang="vi", dropna=True)
-                except TypeError:
-                    ratio = fin.ratio(period="year")
-                if ratio is not None and not ratio.empty:
-                    m = extract_metrics(ratio)
-                    if any(v is not None for v in m.values()):
-                        m["source"] = source
-                        return m
-            except Exception as e:
-                errors.append(f"{source}: {e}")
-    except ImportError as e:
-        errors.append(str(e))
+        m = extract_metrics(ratio_tcbs(ticker))
+        if any(v is not None for v in m.values()):
+            m["source"] = "TCBS"
+            return m
+        errors.append("TCBS: không đọc được cột chỉ số")
+    except Exception as e:
+        errors.append(f"TCBS: {e}")
+    try:
+        m = metrics_yahoo(ticker)
+        m["source"] = "Yahoo Finance"
+        return m
+    except Exception as e:
+        errors.append(f"Yahoo: {e}")
     raise RuntimeError("Không lấy được chỉ số tài chính: " + " | ".join(errors))
 
 

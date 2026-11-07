@@ -43,6 +43,6 @@ Tín hiệu MUA cần ≥ 65 điểm **và** bộ lọc đạt (ADX ≥ 20, khô
 pip install -r requirements.txt
 streamlit run app.py
 ```
-Không có mạng / vnstock lỗi → bật "Dùng dữ liệu mẫu" ở thanh bên.
+Không có mạng / nguồn dữ liệu lỗi → bật "Dùng dữ liệu mẫu" ở thanh bên.
 
 ⚠️ Công cụ hỗ trợ, không phải khuyến nghị đầu tư.
