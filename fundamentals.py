@@ -14,6 +14,7 @@ Chỉ tiêu nào không lấy được dữ liệu -> cho điểm trung tính (m
 from __future__ import annotations
 
 import re
+import zlib
 
 import numpy as np
 import pandas as pd
@@ -112,7 +113,7 @@ def load_fundamentals(ticker: str) -> dict:
 
 
 def demo_fundamentals(ticker: str) -> dict:
-    rng = np.random.default_rng(sum(ord(c) for c in ticker) + 7)
+    rng = np.random.default_rng(zlib.crc32(ticker.encode()) + 7)
     return {
         "roe": round(float(rng.uniform(4, 28)), 1),
         "pe": round(float(rng.uniform(5, 25)), 1),
@@ -188,10 +189,15 @@ def score_fundamentals(m: dict) -> dict:
             "source": m.get("source", "")}
 
 
-def overall(fa_score: float, ta_buy_score: float) -> dict:
-    """Tổng điểm 100 = FA (50) + TA (điểm MUA 0-100 quy về 50)."""
+def overall(fa_score: float, ta_buy_score: float, buy_signal: bool | None = None) -> dict:
+    """Tổng điểm 100 = FA (50) + TA (điểm MUA 0-100 quy về 50).
+
+    buy_signal=False: điểm cao nhưng kỹ thuật chưa báo MUA -> chưa "Ưu tiên giải ngân".
+    """
     total = round(fa_score + ta_buy_score / 2, 1)
-    if total >= 75:
+    if total >= 75 and buy_signal is False:
+        verdict = "🔵 Điểm cao – chờ tín hiệu MUA"
+    elif total >= 75:
         verdict = "🟢 Ưu tiên giải ngân"
     elif total >= 60:
         verdict = "🔵 Theo dõi sát, chờ điểm mua"

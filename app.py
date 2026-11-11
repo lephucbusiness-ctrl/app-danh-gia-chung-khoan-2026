@@ -5,6 +5,7 @@ from plotly.subplots import make_subplots
 
 from engine import analyze, demo_price, load_price
 from fundamentals import demo_fundamentals, load_fundamentals, overall, score_fundamentals
+from scanner import UNIVERSE, VN30_REF, scan
 
 st.set_page_config(page_title="Radar Cổ Phiếu", layout="wide")
 
@@ -158,7 +159,113 @@ def build_chart(res: dict, ticker: str) -> go.Figure:
 
 
 # ---------------------------------------------------------------- Tab 1: phân tích 1 mã
-tab1, tab2 = st.tabs(["🔍 Phân tích 1 mã", "🏆 So sánh cùng ngành"])
+tab0, tab1, tab2 = st.tabs(["🔎 Truy tìm cổ phiếu", "🔍 Phân tích 1 mã", "🏆 So sánh cùng ngành"])
+
+# ---------------------------------------------------------------- Tab 0: truy tìm (quét thị trường)
+with tab0:
+    st.markdown("Quét nhiều mã cùng lúc → chấm **Tổng điểm (FA + TA)** → lọc ra mã đáng chú ý.")
+    groups = ["⭐ VN30 (tham khảo)"] + list(UNIVERSE.keys())
+    cA, cB = st.columns([3, 1])
+    with cA:
+        chosen = st.multiselect("Chọn nhóm ngành cần quét", groups, default=["⭐ VN30 (tham khảo)"],
+                                placeholder="Chọn một hoặc nhiều nhóm")
+    with cB:
+        scan_all = st.checkbox(f"Quét TẤT CẢ ({sum(len(v) for v in UNIVERSE.values())} mã)")
+    extra = st.text_input("Thêm mã khác (không bắt buộc, cách nhau bởi dấu phẩy)", "")
+
+    universe = []
+    if scan_all:
+        universe = [t for ts in UNIVERSE.values() for t in ts]
+    else:
+        for g in chosen:
+            universe += VN30_REF if g.startswith("⭐") else UNIVERSE[g]
+    universe += [t.strip().upper() for t in extra.split(",") if t.strip()]
+    universe = list(dict.fromkeys(universe))  # bỏ trùng, giữ thứ tự
+    st.caption(f"Sẽ quét **{len(universe)} mã**. Khoảng 1–3 phút với 100 mã (lần sau nhanh hơn).")
+
+    if st.button("🚀 BẮT ĐẦU TRUY TÌM", type="primary", disabled=not universe):
+        bar = st.progress(0.0, text="Đang quét...")
+
+        def _p(done, total, t):
+            bar.progress(done / total, text=f"Đã quét {done}/{total} mã (vừa xong: {t})")
+
+        rows, errs = scan(universe, use_demo, vp_days, progress=_p)
+        bar.empty()
+        st.session_state["scan_rows"] = rows
+        st.session_state["scan_errs"] = errs
+        st.session_state["scan_time"] = pd.Timestamp.now().strftime("%H:%M %d/%m/%Y")
+
+    rows = st.session_state.get("scan_rows")
+    if rows:
+        errs = st.session_state.get("scan_errs", {})
+        res_df = pd.DataFrame(rows)
+
+        st.markdown(f"#### 🎛️ Bộ lọc  ·  _quét lúc {st.session_state['scan_time']}, {len(res_df)} mã_")
+        f1, f2, f3, f4 = st.columns(4)
+        min_total = f1.slider("Tổng điểm tối thiểu", 0, 100, 60, 5)
+        sig_opt = f2.selectbox("Tín hiệu kỹ thuật", ["Tất cả", "Chỉ 🟢 MUA", "MUA + Chờ xác nhận", "Tránh 🔴 BÁN"])
+        min_liq = f3.number_input("GTGD TB tối thiểu (tỷ/phiên)", 0.0, 2000.0, 10.0, 5.0,
+                                  help="Lọc bỏ mã ít thanh khoản, khó mua bán")
+        max_risk = f4.slider("Rủi ro tối đa đến điểm cắt lỗ (%)", 2, 20, 10)
+
+        m = (res_df["Tổng điểm"] >= min_total) & (res_df["GTGD TB20 (tỷ)"] >= min_liq) & (res_df["Rủi ro %"] <= max_risk)
+        if sig_opt == "Chỉ 🟢 MUA":
+            m &= res_df["_dir"] == 1
+        elif sig_opt == "MUA + Chờ xác nhận":
+            m &= (res_df["_dir"] == 1) | res_df["Tín hiệu KT"].str.contains("XÁC NHẬN MUA")
+        elif sig_opt == "Tránh 🔴 BÁN":
+            m &= res_df["_dir"] != -1
+        view = res_df[m].sort_values("Tổng điểm", ascending=False).reset_index(drop=True)
+
+        # Thẻ TOP 5
+        st.markdown(f"### 🏆 Tìm thấy **{len(view)} mã** đạt tiêu chí")
+        if view.empty:
+            st.info("Không có mã nào đạt. Thử hạ 'Tổng điểm tối thiểu' hoặc 'GTGD TB tối thiểu'.")
+        else:
+            cards = st.columns(min(5, len(view)))
+            for c, (_, r) in zip(cards, view.head(5).iterrows()):
+                c.metric(f"{r['Mã']} · {r['Ngành']}", f"{r['Tổng điểm']:.0f}/100",
+                         f"{r['% 1 tháng']:+.1f}% / 1 tháng" if pd.notna(r["% 1 tháng"]) else None)
+                c.caption(f"{r['Tín hiệu KT']}  \nGiá {fmt(r['Giá'])} · SL {fmt(r['Cắt lỗ'])}")
+
+            show = view.drop(columns=["_dir"]).copy()
+            show.index = show.index + 1
+            st.dataframe(
+                show, use_container_width=True, height=min(38 * (len(show) + 1), 600),
+                column_config={
+                    "Tổng điểm": st.column_config.ProgressColumn("Tổng điểm", min_value=0, max_value=100, format="%.0f"),
+                    "Giá": st.column_config.NumberColumn(format="%,.0f"),
+                    "Cắt lỗ": st.column_config.NumberColumn(format="%,.0f"),
+                    "% 1 tuần": st.column_config.NumberColumn(format="%+.1f%%"),
+                    "% 1 tháng": st.column_config.NumberColumn(format="%+.1f%%"),
+                },
+            )
+            st.download_button("⬇️ Tải kết quả (Excel/CSV)", show.to_csv(index_label="Hạng").encode("utf-8-sig"),
+                               file_name="truy-tim-co-phieu.csv", mime="text/csv")
+
+            # Điểm nóng theo ngành
+            with st.expander("📊 Ngành nào đang mạnh? (điểm trung bình theo ngành)"):
+                sec = (res_df.groupby("Ngành")
+                       .agg(**{"Điểm TB": ("Tổng điểm", "mean"), "Số mã": ("Mã", "count"),
+                               "Số mã tín hiệu MUA": ("_dir", lambda s: int((s == 1).sum()))})
+                       .sort_values("Điểm TB", ascending=False).round(1))
+                st.dataframe(sec, use_container_width=True)
+
+            # Xem nhanh biểu đồ
+            st.markdown("#### 🔍 Xem nhanh biểu đồ")
+            pick = st.selectbox("Chọn mã", view["Mã"].tolist())
+            if pick:
+                try:
+                    pres = analyze(get_data(pick, use_demo), lookback_vp=vp_days)
+                    st.plotly_chart(build_chart(pres, pick), use_container_width=True)
+                    st.caption("Xem đầy đủ bảng tín hiệu & sức khỏe doanh nghiệp ở tab 🔍 Phân tích 1 mã.")
+                except Exception as e:
+                    st.warning(f"Không vẽ được {pick}: {e}")
+
+        if errs:
+            with st.expander(f"⚠️ {len(errs)} mã không lấy được dữ liệu"):
+                for t, e in errs.items():
+                    st.write(f"**{t}**: {e}")
 
 with tab1:
     ticker = st.text_input("Mã cổ phiếu", "HPG").strip().upper()
@@ -175,7 +282,7 @@ with tab1:
         pos = res["position"]
         last = res["df"].iloc[-1]
 
-        tot = overall(fa["score"], sig["Điểm MUA"])
+        tot = overall(fa["score"], sig["Điểm MUA"], sig["direction"] == 1)
 
         c0, c1, c2, c3, c4 = st.columns([1.3, 1, 1.2, 1, 1])
         c0.metric("⭐ TỔNG ĐIỂM", f"{tot['total']:.0f}/100", tot["verdict"], delta_color="off", delta_arrow="off")
@@ -242,7 +349,7 @@ with tab2:
                 r = analyze(get_data(t, use_demo), lookback_vp=vp_days)
                 s, p = r["signal"], r["position"]
                 fa, fa_err = get_fa(t, use_demo)
-                tot = overall(fa["score"], s["Điểm MUA"])
+                tot = overall(fa["score"], s["Điểm MUA"], s["direction"] == 1)
                 fa_vals = dict(zip(fa["table"]["Tiêu chí"], fa["table"]["Giá trị"]))
                 rows.append({
                     "Mã": t,

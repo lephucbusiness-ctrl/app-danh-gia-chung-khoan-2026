@@ -2,7 +2,9 @@
 
 App Streamlit mô phỏng ý tưởng bảng "Quantum AI" (TradingView) cho cổ phiếu Việt Nam.
 
-![Ảnh màn hình](docs/screenshot.png)
+![Truy tìm cổ phiếu](docs/truy-tim.png)
+
+![Phân tích 1 mã](docs/screenshot.png)
 
 ## Các khối chức năng
 | Khối | Nội dung |
@@ -16,6 +18,7 @@ App Streamlit mô phỏng ý tưởng bảng "Quantum AI" (TradingView) cho cổ
 | Sức khỏe doanh nghiệp (FA) | ROE, tăng trưởng lợi nhuận, P/E, Nợ/Vốn chủ, P/B → điểm /50, xếp hạng A-B-C-D |
 | **Tổng điểm 100** | FA (50) + Kỹ thuật (50) → Ưu tiên giải ngân / Theo dõi / Trung tính / Tránh |
 | So sánh ngành | Xếp hạng nhiều mã theo tổng điểm |
+| **🔎 Truy tìm cổ phiếu** | Quét VN30 / 14 nhóm ngành (111 mã) hoặc mã tự nhập; lọc theo tổng điểm, tín hiệu, thanh khoản, rủi ro; xem ngành mạnh; tải CSV |
 
 ## Thang điểm cơ bản FA (50)
 ROE 15 · Tăng trưởng LNST 10 · P/E 10 · Nợ/Vốn chủ 10 · P/B 5.
@@ -24,7 +27,8 @@ Thiếu chỉ tiêu nào → cho nửa số điểm (trung tính). Ngân hàng (
 ## Tổng điểm (100)
 | Tổng điểm | Đánh giá |
 |---|---|
-| ≥ 75 | 🟢 Ưu tiên giải ngân |
+| ≥ 75 và có tín hiệu MUA | 🟢 Ưu tiên giải ngân |
+| ≥ 75, chưa có tín hiệu MUA | 🔵 Điểm cao – chờ tín hiệu MUA |
 | 60–74 | 🔵 Theo dõi sát, chờ điểm mua |
 | 45–59 | 🟡 Trung tính |
 | < 45 | 🔴 Tránh / hạ tỷ trọng |
@@ -46,3 +50,5 @@ streamlit run app.py
 Không có mạng / nguồn dữ liệu lỗi → bật "Dùng dữ liệu mẫu" ở thanh bên.
 
 ⚠️ Công cụ hỗ trợ, không phải khuyến nghị đầu tư.
+
+Danh sách mã theo ngành nằm trong `scanner.py` (danh sách tham khảo, có thể sửa).

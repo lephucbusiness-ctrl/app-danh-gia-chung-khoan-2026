@@ -13,6 +13,8 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 
+import zlib
+
 import numpy as np
 import pandas as pd
 
@@ -42,7 +44,7 @@ def load_price(ticker: str, days: int = 730) -> pd.DataFrame:
 
 def demo_price(ticker: str, days: int = 500) -> pd.DataFrame:
     """Dữ liệu giả lập để chạy thử khi không có mạng."""
-    seed = sum(ord(c) for c in ticker)
+    seed = zlib.crc32(ticker.encode())
     rng = np.random.default_rng(seed)
     idx = pd.bdate_range(end=datetime.now().date(), periods=days)
     drift = rng.normal(0.0004, 0.0003)
