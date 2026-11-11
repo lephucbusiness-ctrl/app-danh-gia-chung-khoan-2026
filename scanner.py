@@ -40,6 +40,7 @@ SECTOR_OF = {t: s for s, ts in UNIVERSE.items() for t in ts}
 
 def scan_one(ticker: str, demo: bool, vp_days: int = 120) -> dict:
     df = demo_price(ticker) if demo else load_price(ticker)
+    src = "Dữ liệu mẫu" if demo else df.attrs.get("source", "")
     r = analyze(df, lookback_vp=vp_days)
     s, p, last = r["signal"], r["position"], r["df"].iloc[-1]
     try:
@@ -72,6 +73,7 @@ def scan_one(ticker: str, demo: bool, vp_days: int = 120) -> dict:
         "Tăng trưởng LN": vals.get("Tăng trưởng LNST"),
         "Cắt lỗ": float(p["Cắt lỗ (SL)"]),
         "Rủi ro %": round(p["Rủi ro %"], 2),
+        "Nguồn giá": src,
         "_dir": s["direction"],
     }
 

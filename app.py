@@ -283,6 +283,9 @@ with tab1:
         last = res["df"].iloc[-1]
 
         tot = overall(fa["score"], sig["Điểm MUA"], sig["direction"] == 1)
+        _src = "Dữ liệu mẫu" if use_demo else get_data(ticker, use_demo).attrs.get("source", "")
+        if _src.startswith("Dữ liệu lưu"):
+            st.warning(f"⚠️ Nguồn giá đang lỗi, app dùng {_src.lower()}.")
 
         c0, c1, c2, c3, c4 = st.columns([1.3, 1, 1.2, 1, 1])
         c0.metric("⭐ TỔNG ĐIỂM", f"{tot['total']:.0f}/100", tot["verdict"], delta_color="off", delta_arrow="off")

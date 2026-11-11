@@ -2,20 +2,49 @@
 Nguồn dữ liệu (không dùng vnstock - gói này đang bị PyPI cách ly).
 
 Thứ tự thử:
-  Giá lịch sử : 1) Yahoo Finance (mã dạng HPG.VN, chủ yếu sàn HOSE)
+  Giá lịch sử : 1) Yahoo Finance (HPG.VN cho HOSE, thử thêm .HN cho HNX)
                 2) VNDirect  3) Vietcap  (có cả HNX, UPCoM)  4) TCBS
+                5) Lần tải thành công gần nhất (≤ 7 ngày) nếu mọi nguồn đều lỗi
   Chỉ số TC   : 1) API công khai TCBS                         2) Yahoo Finance
 """
 from __future__ import annotations
 
+import tempfile
 import time
 from datetime import datetime, timedelta
+from pathlib import Path
 
 import pandas as pd
 import requests
 
 HEADERS = {"User-Agent": "Mozilla/5.0 (radar-co-phieu)", "Accept": "application/json"}
 TCBS = "https://apipubaws.tcbs.com.vn"
+
+# Bộ nhớ đệm: lưu lần tải giá thành công gần nhất, dùng lại khi mọi nguồn đều lỗi
+CACHE_DIR = Path(tempfile.gettempdir()) / "radar_co_phieu_cache"
+CACHE_MAX_DAYS = 7
+
+
+def _save_cache(ticker: str, df: pd.DataFrame) -> None:
+    try:
+        CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        df.to_pickle(CACHE_DIR / f"{ticker}.pkl")
+    except Exception:
+        pass
+
+
+def _load_cache(ticker: str) -> pd.DataFrame | None:
+    f = CACHE_DIR / f"{ticker}.pkl"
+    try:
+        age_days = (time.time() - f.stat().st_mtime) / 86400
+        if age_days > CACHE_MAX_DAYS:
+            return None
+        df = pd.read_pickle(f)
+        saved = datetime.fromtimestamp(f.stat().st_mtime).strftime("%d/%m %H:%M")
+        df.attrs["source"] = f"Dữ liệu lưu lúc {saved} (nguồn đang lỗi)"
+        return df
+    except Exception:
+        return None
 
 
 def _clean(df: pd.DataFrame) -> pd.DataFrame:
@@ -33,13 +62,12 @@ def _clean(df: pd.DataFrame) -> pd.DataFrame:
 def price_yahoo(ticker: str, days: int) -> pd.DataFrame:
     import yfinance as yf
 
-    df = yf.Ticker(f"{ticker}.VN").history(
-        start=(datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d"),
-        interval="1d", auto_adjust=False,
-    )
-    if df is None or df.empty:
-        raise ValueError("Yahoo không có dữ liệu")
-    return _clean(df)
+    start = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
+    for suffix in (".VN", ".HN"):  # .VN: sàn HOSE; .HN: thử cho sàn HNX
+        df = yf.Ticker(f"{ticker}{suffix}").history(start=start, interval="1d", auto_adjust=False)
+        if df is not None and not df.empty:
+            return _clean(df)
+    raise ValueError("Yahoo không có dữ liệu")
 
 
 def price_tcbs(ticker: str, days: int) -> pd.DataFrame:
@@ -119,10 +147,14 @@ def load_price(ticker: str, days: int = 730) -> pd.DataFrame:
             df = fn(ticker, days)
             if len(df) >= 60:
                 df.attrs["source"] = name
+                _save_cache(ticker, df)
                 return df
             errors.append(f"{name}: chỉ có {len(df)} phiên")
         except Exception as e:
             errors.append(f"{name}: {e}")
+    cached = _load_cache(ticker)
+    if cached is not None:
+        return cached
     raise RuntimeError(f"Không tải được giá {ticker}. " + " | ".join(errors))
 
 
@@ -148,7 +180,11 @@ def ratio_tcbs(ticker: str) -> pd.DataFrame:
 def metrics_yahoo(ticker: str) -> dict:
     import yfinance as yf
 
-    info = yf.Ticker(f"{ticker}.VN").info or {}
+    info = {}
+    for suffix in (".VN", ".HN"):
+        info = yf.Ticker(f"{ticker}{suffix}").info or {}
+        if info.get("trailingPE") or info.get("returnOnEquity"):
+            break
 
     def g(k):
         v = info.get(k)
