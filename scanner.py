@@ -6,6 +6,7 @@ có thể lệch so với rổ chỉ số chính thức (VN30, VN100...). Sửa 
 """
 from __future__ import annotations
 
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from engine import analyze, demo_price, load_price
@@ -75,7 +76,7 @@ def scan_one(ticker: str, demo: bool, vp_days: int = 120) -> dict:
     }
 
 
-def scan(tickers: list[str], demo: bool, vp_days: int = 120, workers: int = 6, progress=None):
+def scan(tickers: list[str], demo: bool, vp_days: int = 120, workers: int = 3, progress=None):
     """Quét song song. progress(done, total, ticker) để cập nhật thanh tiến trình."""
     rows, errors = [], {}
     with ThreadPoolExecutor(max_workers=workers) as ex:
@@ -88,4 +89,14 @@ def scan(tickers: list[str], demo: bool, vp_days: int = 120, workers: int = 6, p
                 errors[t] = str(e)
             if progress:
                 progress(i, len(tickers), t)
+    # Mã lỗi (thường do nguồn giới hạn số lần gọi): chờ rồi quét lại lần lượt, chậm rãi
+    if errors:
+        time.sleep(3)
+    for t in list(errors):
+        try:
+            rows.append(scan_one(t, demo, vp_days))
+            del errors[t]
+        except Exception as e:
+            errors[t] = str(e)
+        time.sleep(1.5)
     return rows, errors
