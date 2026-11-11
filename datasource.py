@@ -2,7 +2,8 @@
 Nguồn dữ liệu (không dùng vnstock - gói này đang bị PyPI cách ly).
 
 Thứ tự thử:
-  Giá lịch sử : 1) Yahoo Finance (yfinance, mã dạng HPG.VN)  2) API công khai TCBS
+  Giá lịch sử : 1) Yahoo Finance (mã dạng HPG.VN, chủ yếu sàn HOSE)
+                2) VNDirect  3) Vietcap  (có cả HNX, UPCoM)  4) TCBS
   Chỉ số TC   : 1) API công khai TCBS                         2) Yahoo Finance
 """
 from __future__ import annotations
@@ -65,9 +66,55 @@ def price_tcbs(ticker: str, days: int) -> pd.DataFrame:
     return _clean(df)
 
 
+def _from_arrays(t, o, h, l, c, v) -> pd.DataFrame:
+    """Dạng dữ liệu TradingView: các mảng t (unix giây), o, h, l, c, v."""
+    df = pd.DataFrame({"open": o, "high": h, "low": l, "close": c, "volume": v},
+                      index=pd.to_datetime(pd.Series(t, dtype="int64"), unit="s"))
+    df = df.astype(float)
+    if len(df) and df["close"].median() < 1000:  # nguồn trả giá theo nghìn đồng
+        df[["open", "high", "low", "close"]] *= 1000
+    return _clean(df)
+
+
+def price_vndirect(ticker: str, days: int) -> pd.DataFrame:
+    now = int(time.time())
+    r = requests.get(
+        "https://dchart-api.vndirect.com.vn/dchart/history",
+        params={"resolution": "D", "symbol": ticker, "from": now - days * 86400, "to": now},
+        headers=HEADERS, timeout=20,
+    )
+    r.raise_for_status()
+    j = r.json()
+    if j.get("s") != "ok" or not j.get("t"):
+        raise ValueError("VNDirect không có dữ liệu")
+    return _from_arrays(j["t"], j["o"], j["h"], j["l"], j["c"], j["v"])
+
+
+def price_vietcap(ticker: str, days: int) -> pd.DataFrame:
+    body = {"timeFrame": "ONE_DAY", "symbols": [ticker], "to": int(time.time()), "countBack": days}
+    hdr = {**HEADERS, "Content-Type": "application/json",
+           "Referer": "https://trading.vietcap.com.vn/", "Origin": "https://trading.vietcap.com.vn"}
+    last_err = None
+    for path in ("gap-chart", "gap"):
+        try:
+            r = requests.post(f"https://trading.vietcap.com.vn/api/chart/OHLCChart/{path}",
+                              json=body, headers=hdr, timeout=20)
+            r.raise_for_status()
+            j = r.json()
+            item = j[0] if isinstance(j, list) and j else j
+            if item and item.get("t"):
+                return _from_arrays(item["t"], item["o"], item["h"], item["l"], item["c"], item["v"])
+            last_err = ValueError("Vietcap không có dữ liệu")
+        except Exception as e:
+            last_err = e
+    raise last_err
+
+
 def load_price(ticker: str, days: int = 730) -> pd.DataFrame:
     errors = []
-    for name, fn in (("Yahoo", price_yahoo), ("TCBS", price_tcbs)):
+    sources = (("Yahoo", price_yahoo), ("VNDirect", price_vndirect),
+               ("Vietcap", price_vietcap), ("TCBS", price_tcbs))
+    for name, fn in sources:
         try:
             df = fn(ticker, days)
             if len(df) >= 60:
